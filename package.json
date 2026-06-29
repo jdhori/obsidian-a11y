@@ -1,0 +1,23 @@
+{
+  "name": "obsidian-a11y-enhancer",
+  "version": "0.1.0",
+  "description": "Runtime WCAG 2.1 AA accessibility retrofit for Obsidian, delivered as a community plugin.",
+  "author": "Joshua Hori (https://github.com/jdhori)",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/jdhori/obsidian-a11y.git" },
+  "bugs": { "url": "https://github.com/jdhori/obsidian-a11y/issues" },
+  "type": "module",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc --noEmit --skipLibCheck && node esbuild.config.mjs production",
+    "deploy": "node esbuild.config.mjs production && node scripts/deploy.mjs"
+  },
+  "keywords": ["obsidian", "accessibility", "a11y", "wcag", "aria"],
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.20.0",
+    "obsidian": "^1.4.11",
+    "typescript": "^5.4.0"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "id": "a11y-enhancer",
+  "name": "Accessibility Enhancer",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "Retrofits WCAG 2.1 AA accessibility onto Obsidian's UI at runtime: keyboard operability, ARIA roles/names/states, visible focus, reduced motion, and live-region announcements. Community-maintained.",
+  "author": "Joshua Hori",
+  "authorUrl": "https://github.com/jdhori",
+  "isDesktopOnly": false
+}

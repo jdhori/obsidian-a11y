@@ -1,0 +1,72 @@
+/* Accessibility Enhancer — injected styles. All feature rules are gated by a
+   body class so each can be toggled independently from the settings tab. */
+
+/* Visually-hidden live region for announcements. */
+.a11y-enhancer-sr-only {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Visible focus (SC 2.4.7) --------------------------------------------
+   Obsidian ships a global `:focus { outline: none }`. Restore a clear,
+   accent-colored ring on keyboard focus for every interactive surface. */
+body.a11y-focus-ring *:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+  border-radius: var(--radius-s, 4px);
+}
+
+body.a11y-focus-ring :is(
+  .clickable-icon,
+  .nav-file-title,
+  .nav-folder-title,
+  .tree-item-self,
+  .workspace-tab-header,
+  .vertical-tab-nav-item,
+  .suggestion-item,
+  .menu-item,
+  .status-bar-item.mod-clickable,
+  [role="button"],
+  [role="tab"],
+  [role="treeitem"],
+  [role="option"],
+  [role="switch"]
+):focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -2px;
+  box-shadow: 0 0 0 1px var(--background-primary);
+}
+
+/* --- Reduced motion (SC 2.3.3) -------------------------------------------
+   Only engages when the OS requests reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  body.a11y-reduced-motion *,
+  body.a11y-reduced-motion *::before,
+  body.a11y-reduced-motion *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* --- Contrast boost (SC 1.4.3 / 1.4.11) — opt-in ------------------------- */
+body.a11y-contrast-boost {
+  --text-faint: var(--text-muted);
+}
+body.a11y-contrast-boost.theme-dark {
+  --text-muted: #c2c9d1;
+  --background-modifier-border-focus: #8aa9ff;
+}
+body.a11y-contrast-boost.theme-light {
+  --text-muted: #454c54;
+  --interactive-accent: #1a5fb4;
+  --background-modifier-border-focus: #1a5fb4;
+}
