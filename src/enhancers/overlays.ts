@@ -109,17 +109,68 @@ function enhanceModals(doc: Document): void {
   });
 }
 
+// Vertical tablist arrow navigation for the Settings section list. Without it,
+// the nav items are focusable but Up/Down just scrolls the panel — the user is
+// stranded on whichever section was active and can't reach the others.
+function installVerticalTabKeys(nav: HTMLElement): void {
+  if (!once(nav, "VTabKeys")) return;
+  nav.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+    const items = Array.from(
+      nav.querySelectorAll<HTMLElement>(".vertical-tab-nav-item"),
+    ).filter(isVisible);
+    if (!items.length) return;
+    const cur = (e.target as HTMLElement)?.closest?.(".vertical-tab-nav-item");
+    const i = cur ? items.indexOf(cur as HTMLElement) : -1;
+    let next: HTMLElement | undefined;
+    if (e.key === "ArrowDown") next = items[i + 1] ?? items[0];
+    else if (e.key === "ArrowUp") next = items[i - 1] ?? items[items.length - 1];
+    else if (e.key === "Home") next = items[0];
+    else next = items[items.length - 1];
+    if (!next) return;
+    e.preventDefault();
+    items.forEach((it) => {
+      const on = it === next;
+      setAttr(it, "tabindex", on ? "0" : "-1");
+      setAttr(it, "aria-selected", String(on));
+    });
+    // Automatic activation switches (and may re-render) the section, so focus
+    // AFTER the click and re-query the live active node to avoid focus loss.
+    next.click();
+    const live =
+      nav.querySelector<HTMLElement>(".vertical-tab-nav-item.is-active") ?? next;
+    live.focus();
+  });
+}
+
 function enhanceSettingsNav(doc: Document): void {
   // .vertical-tab-header is the direct container of the nav items; tag only it
   // as the tablist (tagging the outer group too would nest tablists).
-  doc
-    .querySelectorAll<HTMLElement>(".vertical-tab-header")
-    .forEach((h) => setRoleIfAbsent(h, "tablist"));
+  doc.querySelectorAll<HTMLElement>(".vertical-tab-header").forEach((h) => {
+    setRoleIfAbsent(h, "tablist");
+    setAttr(h, "aria-orientation", "vertical");
+    installVerticalTabKeys(h);
+  });
 
   doc.querySelectorAll<HTMLElement>(".vertical-tab-nav-item").forEach((item) => {
     const active = item.classList.contains("is-active");
     makeActivatable(item, { role: "tab", tabindex: active ? 0 : -1 });
     setAttr(item, "aria-selected", String(active));
+  });
+
+  // Wire the section content as the tab panel for the active tab, so screen
+  // readers announce a panel boundary when Tab enters the settings content.
+  doc.querySelectorAll<HTMLElement>(".vertical-tab-content").forEach((panel) => {
+    setRoleIfAbsent(panel, "tabpanel");
+    setAttr(panel, "tabindex", "-1");
+    const container = panel.closest(".vertical-tabs-container");
+    const activeTab = container?.querySelector<HTMLElement>(
+      ".vertical-tab-nav-item.is-active",
+    );
+    if (activeTab) {
+      setAttr(panel, "aria-labelledby", ensureId(activeTab));
+      setAttr(activeTab, "aria-controls", ensureId(panel));
+    }
   });
 }
 

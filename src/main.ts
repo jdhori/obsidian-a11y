@@ -7,6 +7,7 @@ import { enhanceStructure } from "./enhancers/structure";
 import { enhanceOverlays } from "./enhancers/overlays";
 import { enhanceForms } from "./enhancers/forms";
 import { A11ySettingTab } from "./settings";
+import { installEscapeEditable } from "./escape-editable";
 
 interface DocContext {
   observer: A11yObserver;
@@ -49,6 +50,7 @@ export default class A11yEnhancerPlugin extends Plugin {
     if (this.settings.announcer) announcer.mount();
     const observer = new A11yObserver(doc, (d) => this.sweep(d, announcer));
     observer.start();
+    installEscapeEditable(doc, this.app, () => this.settings.escapeEditables);
     this.contexts.set(doc, { observer, announcer });
   }
 
