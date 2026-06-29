@@ -1,23 +1,70 @@
-// APG tree keyboard interaction model for Obsidian's side menus (file explorer,
-// outline, bookmarks). Obsidian renders tree rows as non-focusable <div>s with
-// only class-based state, so a keyboard user can Tab *past* the side menu but
-// never traverse it. This adds the standard tree model on top of the roles the
-// structure enhancer already applies:
+// APG tree keyboard interaction for Obsidian's side menus (file explorer,
+// outline, bookmarks), using the **aria-activedescendant** model.
 //
-//   ArrowUp/ArrowDown  move between visible items (roving tabindex)
-//   ArrowRight         expand a collapsed folder, else move to first child
+// Why activedescendant and not roving tabindex+.focus():
+//   Obsidian renders tree rows as non-focusable <div>s and tracks the "current"
+//   row with a CSS class (`has-focus`), never real DOM focus. Clicking a file
+//   leaves document.activeElement on <body>. An earlier version put a roving
+//   tabindex on each .tree-item wrapper and called .focus() — but because normal
+//   use never moves real focus onto a row, ArrowUp/Down landed on <body>, bubbled
+//   straight to document, and the keystroke fell through to the scroll container:
+//   the tree "only scrolled". (See docs/audit/02 — DS-07, which recommends exactly
+//   this model.)
+//
+// The model here:
+//   - The tree container ([role="tree"]) is the single tab stop (tabindex=0) and
+//     the focus owner. It carries aria-activedescendant pointing at the "current"
+//     treeitem; rows themselves are never tab stops.
+//   - Arrow/Home/End/Enter/Space are handled on the container. We preventDefault
+//     (kill scroll) AND stopPropagation (suppress Obsidian's own scope arrow-nav,
+//     so the two models never double-move).
+//   - A visible cursor (.a11y-tree-active on the row) is shown only while the tree
+//     has focus, so keyboard users see where they are — distinct from selection.
+//   - Clicking a row syncs the cursor there so keyboarding resumes from the click.
+//
+//   ArrowUp/ArrowDown  move between visible items
+//   ArrowRight         expand a collapsed folder, else step into first child
 //   ArrowLeft          collapse an expanded folder, else move to parent
 //   Home/End           first / last visible item
 //   Enter              activate immediately (open file / toggle folder)
 //   Space              activate on key-up, cancellable by moving focus first
-//
-// role="treeitem" lives on the .tree-item WRAPPER (valid tree>treeitem>group
-// ownership); activation clicks the inner .tree-item-self row that Obsidian
-// already wired.
 
-import { isVisible, once, setAttr } from "../dom";
+import { ensureId, isVisible, removeAttr, setAttr } from "../dom";
 
 const TREEITEM = '[role="treeitem"]';
+const ACTIVE_CLASS = "a11y-tree-active";
+
+// Stash the bound handlers on the element so a plugin reload (disable→enable,
+// e.g. after an update) replaces them instead of leaving the previous version's
+// listeners attached. The dataset `once` flag survives across reloads on the
+// persistent DOM node, so it cannot be used to re-arm these listeners.
+interface TreeHandlers {
+  keydown: (e: KeyboardEvent) => void;
+  keyup: (e: KeyboardEvent) => void;
+  click: (e: MouseEvent) => void;
+  focusin: () => void;
+  focusout: () => void;
+}
+
+interface KbdTreeEl extends HTMLElement {
+  _a11yTreeKbd?: TreeHandlers;
+}
+
+function unbind(el: KbdTreeEl): void {
+  const h = el._a11yTreeKbd;
+  if (!h) return;
+  el.removeEventListener("keydown", h.keydown);
+  el.removeEventListener("keyup", h.keyup);
+  el.removeEventListener("click", h.click);
+  el.removeEventListener("focusin", h.focusin);
+  el.removeEventListener("focusout", h.focusout);
+  delete el._a11yTreeKbd;
+}
+
+/** Remove every tree-keyboard listener in a document (called on plugin unload). */
+export function uninstallTreeKeyboard(doc: Document): void {
+  doc.querySelectorAll<KbdTreeEl>('[role="tree"]').forEach(unbind);
+}
 
 function visibleItems(tree: Element): HTMLElement[] {
   return Array.from(tree.querySelectorAll<HTMLElement>(TREEITEM)).filter(isVisible);
@@ -48,116 +95,208 @@ function parentItem(item: HTMLElement, tree: Element): HTMLElement | null {
   return null;
 }
 
-/** Move the single tab stop to `target` and focus it. */
-function focusItem(tree: Element, target: HTMLElement): void {
+/** Accessible name for the whole tree, from the enclosing view's data-type. */
+function labelForTree(tree: Element): string {
+  const type = tree.closest(".workspace-leaf-content")?.getAttribute("data-type");
+  switch (type) {
+    case "file-explorer":
+      return "Files";
+    case "outline":
+      return "Outline";
+    case "bookmarks":
+      return "Bookmarks";
+    case "tag":
+      return "Tags";
+    case "search":
+      return "Search results";
+    default:
+      return "Navigation";
+  }
+}
+
+/** The current activedescendant element, if it still exists and is visible. */
+function currentActive(tree: HTMLElement): HTMLElement | null {
+  const id = tree.getAttribute("aria-activedescendant");
+  if (!id) return null;
+  const el = tree.ownerDocument.getElementById(id);
+  return el && tree.contains(el) && isVisible(el) ? (el as HTMLElement) : null;
+}
+
+/**
+ * Point aria-activedescendant at `item`, move the visible cursor to its row, and
+ * make selection follow focus (APG single-select tree): the active row is the
+ * one that carries aria-selected="true".
+ */
+function setActive(tree: HTMLElement, item: HTMLElement): void {
+  setAttr(tree, "aria-activedescendant", ensureId(item, "a11y-tree"));
+  const row = rowOf(item);
   tree.querySelectorAll<HTMLElement>(TREEITEM).forEach((t) => {
-    setAttr(t, "tabindex", t === target ? "0" : "-1");
+    setAttr(t, "aria-selected", String(t === item));
+    const r = rowOf(t);
+    if (r && r !== row) r.classList.remove(ACTIVE_CLASS);
   });
-  target.focus();
+  row?.classList.add(ACTIVE_CLASS);
+}
+
+/** The open file's row, if any — Obsidian marks it is-active / has-focus. */
+function openItem(tree: HTMLElement): HTMLElement | null {
+  const row = tree.querySelector<HTMLElement>(
+    ":scope .tree-item-self.is-active, :scope .tree-item-self.has-focus",
+  );
+  return (row?.closest(TREEITEM) as HTMLElement | null) ?? null;
+}
+
+/**
+ * Ensure aria-activedescendant references a real, visible row. Rows recycle
+ * (InfinityScroll virtualization), so the prior target can vanish; fall back to
+ * the open file, then the first visible row. Idempotent.
+ */
+function syncActive(tree: HTMLElement): HTMLElement | null {
+  let cur = currentActive(tree);
+  if (!cur) {
+    const open = openItem(tree);
+    cur = (open && isVisible(open) ? open : null) ?? visibleItems(tree)[0] ?? null;
+  }
+  if (cur) setActive(tree, cur);
+  else removeAttr(tree, "aria-activedescendant");
+  return cur;
+}
+
+function move(tree: HTMLElement, target: HTMLElement | null | undefined): void {
+  if (!target) return;
+  setActive(tree, target);
   target.scrollIntoView({ block: "nearest" });
 }
 
-/** Ensure exactly one treeitem in the tree is the tab stop (tabindex=0). */
-function ensureRoving(tree: Element): void {
-  const all = Array.from(tree.querySelectorAll<HTMLElement>(TREEITEM));
-  if (!all.length) return;
-  const current = all.find((t) => t.getAttribute("tabindex") === "0" && isVisible(t));
-  if (current) {
-    all.forEach((t) => {
-      if (t !== current) setAttr(t, "tabindex", "-1");
-    });
-    return;
-  }
-  const vis = all.filter(isVisible);
-  const start =
-    vis.find((t) => t.getAttribute("aria-selected") === "true") ?? vis[0] ?? all[0];
-  all.forEach((t) => setAttr(t, "tabindex", t === start ? "0" : "-1"));
-}
-
 export function installTreeKeyboard(tree: HTMLElement): void {
-  ensureRoving(tree); // runs every sweep to keep the tab stop valid
-  if (!once(tree, "TreeKbd")) return;
+  // The container owns focus; rows are never tab stops in this model.
+  setAttr(tree, "tabindex", "0");
+  if (!tree.hasAttribute("aria-label")) setAttr(tree, "aria-label", labelForTree(tree));
+  tree
+    .querySelectorAll<HTMLElement>(TREEITEM)
+    .forEach((t) => removeAttr(t, "tabindex")); // clear any stale roving stops
+  // Only re-resolve the cursor when it has gone stale (a recycled/removed row).
+  // currentActive is cheap; syncActive walks the tree, so skip it when valid.
+  if (!currentActive(tree)) syncActive(tree);
+
+  // Replace any handlers from a previous plugin load before binding fresh ones.
+  const el = tree as KbdTreeEl;
+  unbind(el);
 
   let spaceArmed: HTMLElement | null = null;
 
-  tree.addEventListener("keydown", (e: KeyboardEvent) => {
+  const onKeydown = (e: KeyboardEvent): void => {
     const t = e.target as HTMLElement;
-    // Don't hijack typing (e.g. inline rename input, search filter).
+    // Don't hijack typing (inline rename input, search filter, etc.).
     if (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
 
-    const cur = t.closest?.(TREEITEM) as HTMLElement | null;
-    if (!cur || !tree.contains(cur)) return;
-
-    // Any non-Space key cancels a pending Space activation, even when it doesn't
-    // move focus (e.g. expand/collapse/Enter in place) — prevents a double-fire.
+    // Any non-Space key cancels a pending Space activation (prevents double-fire).
     if (e.key !== " " && e.key !== "Spacebar") spaceArmed = null;
 
     const list = visibleItems(tree);
-    const i = list.indexOf(cur);
+    if (!list.length) return;
+    const cur = currentActive(tree) ?? syncActive(tree);
+    const i = cur ? list.indexOf(cur) : -1;
 
+    // Everything we handle suppresses the default scroll AND stops the event from
+    // reaching Obsidian's document-level scope nav, so the models never collide.
     switch (e.key) {
       case "ArrowDown":
-        if (i > -1 && i < list.length - 1) { e.preventDefault(); focusItem(tree, list[i + 1]); }
+        e.preventDefault();
+        e.stopPropagation();
+        move(tree, i < 0 ? list[0] : list[Math.min(i + 1, list.length - 1)]);
         break;
       case "ArrowUp":
-        if (i > 0) { e.preventDefault(); focusItem(tree, list[i - 1]); }
+        e.preventDefault();
+        e.stopPropagation();
+        move(tree, i < 0 ? list[0] : list[Math.max(i - 1, 0)]);
         break;
       case "Home":
-        if (list.length) { e.preventDefault(); focusItem(tree, list[0]); }
+        e.preventDefault();
+        e.stopPropagation();
+        move(tree, list[0]);
         break;
       case "End":
-        if (list.length) { e.preventDefault(); focusItem(tree, list[list.length - 1]); }
+        e.preventDefault();
+        e.stopPropagation();
+        move(tree, list[list.length - 1]);
         break;
       case "ArrowRight":
         e.preventDefault();
-        if (isFolder(cur)) {
+        e.stopPropagation();
+        if (cur && isFolder(cur)) {
           if (!isExpanded(cur)) {
             activate(cur); // expand in place
           } else {
-            // Step into the first actual child (not merely the next visible row,
-            // which could be a sibling when an expanded folder is empty).
             const child = cur.querySelector<HTMLElement>(
               `:scope > .tree-item-children > ${TREEITEM}`,
             );
-            if (child && isVisible(child)) focusItem(tree, child);
+            if (child && isVisible(child)) move(tree, child);
           }
         }
         break;
       case "ArrowLeft":
         e.preventDefault();
-        if (isFolder(cur) && isExpanded(cur)) {
+        e.stopPropagation();
+        if (cur && isFolder(cur) && isExpanded(cur)) {
           activate(cur); // collapse in place
-        } else {
-          const p = parentItem(cur, tree);
-          if (p) focusItem(tree, p);
+        } else if (cur) {
+          move(tree, parentItem(cur, tree));
         }
         break;
       case "Enter":
         e.preventDefault();
-        activate(cur); // immediate
+        e.stopPropagation();
+        if (cur) activate(cur); // immediate
         break;
       case " ":
       case "Spacebar":
         e.preventDefault(); // suppress scroll; activate on key-up
+        e.stopPropagation();
         spaceArmed = cur;
         break;
       default:
         break;
     }
-  });
+  };
 
-  tree.addEventListener("keyup", (e: KeyboardEvent) => {
+  const onKeyup = (e: KeyboardEvent): void => {
     if (e.key !== " " && e.key !== "Spacebar") return;
-    const cur = (e.target as HTMLElement)?.closest?.(TREEITEM) as HTMLElement | null;
-    if (spaceArmed && cur === spaceArmed) {
+    if (spaceArmed && spaceArmed === currentActive(tree)) {
       e.preventDefault();
-      activate(cur); // committed activation
+      activate(spaceArmed); // committed activation
     }
     spaceArmed = null;
-  });
+  };
 
-  // Moving focus away (arrow nav, blur) cancels a pending Space activation.
-  tree.addEventListener("focusout", () => {
+  // A pointer click on a row syncs the cursor there (keyboarding resumes from the
+  // click) without stealing focus — Obsidian still handles opening the file.
+  const onClick = (e: MouseEvent): void => {
+    const item = (e.target as HTMLElement)?.closest?.(TREEITEM) as HTMLElement | null;
+    if (item && tree.contains(item)) setActive(tree, item);
+  };
+
+  // Gaining focus guarantees a visible cursor: without an active descendant the
+  // focused container would have no focus indicator at all (SC 2.4.7).
+  const onFocusin = (): void => {
+    if (!currentActive(tree)) syncActive(tree);
+  };
+
+  // Moving focus away cancels a pending Space activation.
+  const onFocusout = (): void => {
     spaceArmed = null;
-  });
+  };
+
+  el.addEventListener("keydown", onKeydown);
+  el.addEventListener("keyup", onKeyup);
+  el.addEventListener("click", onClick);
+  el.addEventListener("focusin", onFocusin);
+  el.addEventListener("focusout", onFocusout);
+  el._a11yTreeKbd = {
+    keydown: onKeydown,
+    keyup: onKeyup,
+    click: onClick,
+    focusin: onFocusin,
+    focusout: onFocusout,
+  };
 }

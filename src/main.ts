@@ -8,6 +8,8 @@ import { enhanceOverlays } from "./enhancers/overlays";
 import { enhanceForms } from "./enhancers/forms";
 import { A11ySettingTab } from "./settings";
 import { installEscapeEditable } from "./escape-editable";
+import { forceActiveReading } from "./reading-mode";
+import { uninstallTreeKeyboard } from "./enhancers/tree-keyboard";
 
 interface DocContext {
   observer: A11yObserver;
@@ -36,6 +38,19 @@ export default class A11yEnhancerPlugin extends Plugin {
         if (win?.document) this.detach(win.document);
       }),
     );
+
+    // Reading view by default: force the just-opened note to preview (editing
+    // stays opt-in). Idempotent, so this never fights a view the user has
+    // deliberately switched to editing.
+    this.registerEvent(
+      this.app.workspace.on("file-open", () => this.enforceReadingMode()),
+    );
+    this.app.workspace.onLayoutReady(() => this.enforceReadingMode());
+  }
+
+  /** Default the active markdown view to Reading view when the setting is on. */
+  enforceReadingMode(): void {
+    if (this.settings.readingDefault) forceActiveReading(this.app);
   }
 
   onunload(): void {
@@ -59,6 +74,7 @@ export default class A11yEnhancerPlugin extends Plugin {
     if (!ctx) return;
     ctx.observer.stop();
     ctx.announcer.unmount();
+    uninstallTreeKeyboard(doc); // raw listeners aren't registerDomEvent-managed
     this.clearBodyFlags(doc);
     this.contexts.delete(doc);
   }

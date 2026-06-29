@@ -42,15 +42,28 @@ body.a11y-focus-ring :is(
   box-shadow: 0 0 0 1px var(--background-primary);
 }
 
-/* Tree rows: role="treeitem" is on the .tree-item wrapper, so draw the focus
-   ring on the row child rather than the whole (subtree-spanning) wrapper. */
-body.a11y-focus-ring .tree-item:focus-visible {
+/* Tree keyboard cursor (aria-activedescendant model): the container holds DOM
+   focus and tracks the "current" row via .a11y-tree-active. Suppress the global
+   ring on the container itself (it would box the whole subtree) and instead draw
+   the cursor on the active row — but only while the tree is focused, so it never
+   competes with the selection highlight when the user is elsewhere. This is the
+   keyboard focus indicator (SC 2.4.7), so it is not gated on the focus-ring
+   feature flag. */
+body.a11y-focus-ring [role="tree"]:focus-visible {
   outline: none;
 }
-body.a11y-focus-ring .tree-item:focus-visible > .tree-item-self {
+[role="tree"]:focus-within .tree-item-self.a11y-tree-active {
   outline: 2px solid var(--interactive-accent);
   outline-offset: -2px;
   border-radius: var(--radius-s, 4px);
+  /* Halo so the cursor keeps 3:1 contrast even on an accent-tinted selected row. */
+  box-shadow: 0 0 0 1px var(--background-primary);
+}
+/* Floor: if the tree is focused before a cursor row exists, ring the container
+   itself so focus is never invisible (SC 2.4.7). */
+[role="tree"]:focus-visible:not([aria-activedescendant]) {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -2px;
 }
 
 /* --- Reduced motion (SC 2.3.3) -------------------------------------------

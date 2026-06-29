@@ -5,7 +5,6 @@ import {
   hideFromAT,
   makeActivatable,
   once,
-  removeAttr,
   setAttr,
   setRoleIfAbsent,
   visibleText,
@@ -70,12 +69,9 @@ function enhanceTrees(doc: Document): void {
 
     const self = item.querySelector<HTMLElement>(":scope > .tree-item-self");
 
-    // Single-select tree: only the active node carries aria-selected.
-    const selected =
-      !!self &&
-      (self.classList.contains("is-active") || self.classList.contains("has-focus"));
-    if (selected) setAttr(item, "aria-selected", "true");
-    else removeAttr(item, "aria-selected");
+    // aria-selected is owned by tree-keyboard.ts, which makes selection follow the
+    // keyboard cursor (APG single-select). Setting it here too would fight that on
+    // every sweep, so the selection state is intentionally not touched here.
 
     const children = item.querySelector<HTMLElement>(":scope > .tree-item-children");
     const collapsible =

@@ -17,6 +17,8 @@ export interface A11ySettings {
   reducedMotion: boolean;
   /** Press Escape to move focus out of an editor/input back to navigable chrome. */
   escapeEditables: boolean;
+  /** Open markdown documents in Reading view; editing stays opt-in via the edit toggle. */
+  readingDefault: boolean;
 }
 
 export const DEFAULT_SETTINGS: A11ySettings = {
@@ -29,4 +31,5 @@ export const DEFAULT_SETTINGS: A11ySettings = {
   contrastBoost: false,
   reducedMotion: true,
   escapeEditables: true,
+  readingDefault: true,
 };

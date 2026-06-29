@@ -16,6 +16,7 @@ const TOGGLES: Toggle[] = [
   { key: "focusRing", name: "Visible focus ring", desc: "Inject a focus indicator across the UI (overrides outline:none)." },
   { key: "announcer", name: "Announce notices", desc: "Mirror toast notices into a screen-reader live region." },
   { key: "escapeEditables", name: "Escape from editors", desc: "Press Escape in the editor or a text field to move focus back to navigable controls." },
+  { key: "readingDefault", name: "Open notes in Reading view", desc: "Markdown opens in Reading view; editing stays opt-in via the note's edit toggle." },
   { key: "reducedMotion", name: "Honor reduced motion", desc: "Suppress app animations when your OS requests reduced motion." },
   { key: "contrastBoost", name: "Contrast boost (opinionated)", desc: "Override default-theme tokens that fail WCAG contrast." },
 ];
@@ -43,6 +44,7 @@ export class A11ySettingTab extends PluginSettingTab {
               this.plugin.settings[t.key] = value;
               await this.plugin.saveSettings();
               if (t.key === "announcer") this.plugin.syncAnnouncer();
+              if (t.key === "readingDefault" && value) this.plugin.enforceReadingMode();
               this.plugin.resweep();
             }),
         );
