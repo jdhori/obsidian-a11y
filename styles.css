@@ -27,7 +27,6 @@ body.a11y-focus-ring :is(
   .clickable-icon,
   .nav-file-title,
   .nav-folder-title,
-  .tree-item-self,
   .workspace-tab-header,
   .vertical-tab-nav-item,
   .suggestion-item,
@@ -35,13 +34,23 @@ body.a11y-focus-ring :is(
   .status-bar-item.mod-clickable,
   [role="button"],
   [role="tab"],
-  [role="treeitem"],
   [role="option"],
   [role="switch"]
 ):focus-visible {
   outline: 2px solid var(--interactive-accent);
   outline-offset: -2px;
   box-shadow: 0 0 0 1px var(--background-primary);
+}
+
+/* Tree rows: role="treeitem" is on the .tree-item wrapper, so draw the focus
+   ring on the row child rather than the whole (subtree-spanning) wrapper. */
+body.a11y-focus-ring .tree-item:focus-visible {
+  outline: none;
+}
+body.a11y-focus-ring .tree-item:focus-visible > .tree-item-self {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -2px;
+  border-radius: var(--radius-s, 4px);
 }
 
 /* --- Reduced motion (SC 2.3.3) -------------------------------------------

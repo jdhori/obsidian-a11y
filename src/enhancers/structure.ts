@@ -10,6 +10,7 @@ import {
   setRoleIfAbsent,
   visibleText,
 } from "../dom";
+import { installTreeKeyboard } from "./tree-keyboard";
 
 function enhanceTabs(doc: Document): void {
   doc
@@ -105,6 +106,9 @@ function enhanceTrees(doc: Document): void {
       setAttr(parent, "aria-multiselectable", "false");
     }
   });
+
+  // Install the keyboard model on each tree (idempotent; maintains roving).
+  doc.querySelectorAll<HTMLElement>('[role="tree"]').forEach(installTreeKeyboard);
 }
 
 export function enhanceStructure(doc: Document): void {
