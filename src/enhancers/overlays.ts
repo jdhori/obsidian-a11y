@@ -109,38 +109,84 @@ function enhanceModals(doc: Document): void {
   });
 }
 
-// Vertical tablist arrow navigation for the Settings section list. Without it,
-// the nav items are focusable but Up/Down just scrolls the panel — the user is
-// stranded on whichever section was active and can't reach the others.
+// Keep exactly one nav item in the tab order (roving), preferring whatever is
+// already focused, then the active section, then the first item.
+function ensureTablistRoving(nav: HTMLElement): void {
+  const items = Array.from(
+    nav.querySelectorAll<HTMLElement>(".vertical-tab-nav-item"),
+  ).filter(isVisible);
+  if (!items.length) return;
+  const cur = items.find((i) => i.getAttribute("tabindex") === "0");
+  if (cur) {
+    items.forEach((i) => { if (i !== cur) setAttr(i, "tabindex", "-1"); });
+    return;
+  }
+  const start = items.find((i) => i.classList.contains("is-active")) ?? items[0];
+  items.forEach((i) => setAttr(i, "tabindex", i === start ? "0" : "-1"));
+}
+
+// Move focus into the section's content so the user can work with its controls.
+function focusSectionContent(navItem: HTMLElement): void {
+  const panel = navItem
+    .closest(".vertical-tabs-container")
+    ?.querySelector<HTMLElement>(".vertical-tab-content");
+  const first = panel?.querySelector<HTMLElement>(FOCUSABLE);
+  if (first) first.focus();
+  else if (panel) { panel.setAttribute("tabindex", "-1"); panel.focus(); }
+}
+
+// Vertical tablist keyboard model for the Settings section list. MANUAL
+// activation: Up/Down/Home/End move focus only; Enter (immediate) or Space
+// (on key-up, cancellable) switches the section AND drops focus into its
+// content — so arrowing never activates a section just by passing over it.
 function installVerticalTabKeys(nav: HTMLElement): void {
   if (!once(nav, "VTabKeys")) return;
-  nav.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
-    const items = Array.from(
-      nav.querySelectorAll<HTMLElement>(".vertical-tab-nav-item"),
-    ).filter(isVisible);
-    if (!items.length) return;
-    const cur = (e.target as HTMLElement)?.closest?.(".vertical-tab-nav-item");
-    const i = cur ? items.indexOf(cur as HTMLElement) : -1;
-    let next: HTMLElement | undefined;
-    if (e.key === "ArrowDown") next = items[i + 1] ?? items[0];
-    else if (e.key === "ArrowUp") next = items[i - 1] ?? items[items.length - 1];
-    else if (e.key === "Home") next = items[0];
-    else next = items[items.length - 1];
+  let spaceArmed: HTMLElement | null = null;
+  const items = () =>
+    Array.from(nav.querySelectorAll<HTMLElement>(".vertical-tab-nav-item")).filter(
+      isVisible,
+    );
+  const moveTo = (next: HTMLElement | undefined) => {
     if (!next) return;
-    e.preventDefault();
-    items.forEach((it) => {
-      const on = it === next;
-      setAttr(it, "tabindex", on ? "0" : "-1");
-      setAttr(it, "aria-selected", String(on));
-    });
-    // Automatic activation switches (and may re-render) the section, so focus
-    // AFTER the click and re-query the live active node to avoid focus loss.
-    next.click();
-    const live =
-      nav.querySelector<HTMLElement>(".vertical-tab-nav-item.is-active") ?? next;
-    live.focus();
+    items().forEach((it) => setAttr(it, "tabindex", it === next ? "0" : "-1"));
+    next.focus();
+  };
+
+  nav.addEventListener("keydown", (e: KeyboardEvent) => {
+    const list = items();
+    if (!list.length) return;
+    const cur = (e.target as HTMLElement)?.closest?.(
+      ".vertical-tab-nav-item",
+    ) as HTMLElement | null;
+    const i = cur ? list.indexOf(cur) : -1;
+    if (e.key !== " " && e.key !== "Spacebar") spaceArmed = null;
+    switch (e.key) {
+      case "ArrowDown": e.preventDefault(); moveTo(list[i + 1] ?? list[0]); break;
+      case "ArrowUp": e.preventDefault(); moveTo(list[i - 1] ?? list[list.length - 1]); break;
+      case "Home": e.preventDefault(); moveTo(list[0]); break;
+      case "End": e.preventDefault(); moveTo(list[list.length - 1]); break;
+      case "Enter":
+        if (cur) { e.preventDefault(); cur.click(); focusSectionContent(cur); }
+        break;
+      case " ":
+      case "Spacebar":
+        if (cur) { e.preventDefault(); spaceArmed = cur; }
+        break;
+    }
   });
+  nav.addEventListener("keyup", (e: KeyboardEvent) => {
+    if (e.key !== " " && e.key !== "Spacebar") return;
+    const cur = (e.target as HTMLElement)?.closest?.(
+      ".vertical-tab-nav-item",
+    ) as HTMLElement | null;
+    if (spaceArmed && cur === spaceArmed) {
+      e.preventDefault();
+      cur.click();
+      focusSectionContent(cur);
+    }
+    spaceArmed = null;
+  });
+  nav.addEventListener("focusout", () => { spaceArmed = null; });
 }
 
 function enhanceSettingsNav(doc: Document): void {
@@ -150,12 +196,14 @@ function enhanceSettingsNav(doc: Document): void {
     setRoleIfAbsent(h, "tablist");
     setAttr(h, "aria-orientation", "vertical");
     installVerticalTabKeys(h);
+    ensureTablistRoving(h);
   });
 
   doc.querySelectorAll<HTMLElement>(".vertical-tab-nav-item").forEach((item) => {
-    const active = item.classList.contains("is-active");
-    makeActivatable(item, { role: "tab", tabindex: active ? 0 : -1 });
-    setAttr(item, "aria-selected", String(active));
+    // Roles + state only; the keydown handler on the tablist owns activation
+    // (no makeActivatable, so Enter/Space isn't double-handled).
+    setRoleIfAbsent(item, "tab");
+    setAttr(item, "aria-selected", String(item.classList.contains("is-active")));
   });
 
   // Wire the section content as the tab panel for the active tab, so screen
