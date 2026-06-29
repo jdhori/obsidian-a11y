@@ -86,8 +86,23 @@ function enhanceTrees(doc: Document): void {
       setAttr(item, "aria-expanded", String(!item.classList.contains("is-collapsed")));
     }
 
-    const label = visibleText(self?.querySelector(".tree-item-inner") ?? null);
-    if (label && !item.hasAttribute("aria-label")) setAttr(item, "aria-label", label);
+    // Always give the treeitem an explicit name. Because role=treeitem sits on
+    // the wrapper (which contains the child group), an empty name would make a
+    // screen reader fall back to reading the entire subtree. Prefer the row
+    // text, then the vault path's basename, then a generic last resort.
+    let name = visibleText(self?.querySelector(".tree-item-inner") ?? null);
+    if (!name && self) {
+      const path = self.getAttribute("data-path");
+      if (path) name = path.split("/").pop() || path;
+    }
+    if (name) {
+      // Keep the real name in sync (handles late render + rename). setAttr is
+      // idempotent, so this doesn't churn once the name is stable.
+      setAttr(item, "aria-label", name);
+    } else if (!item.hasAttribute("aria-label")) {
+      // Last resort only — never clobber a real name resolved on a later sweep.
+      setAttr(item, "aria-label", collapsible ? "Folder" : "Item");
+    }
 
     // Collapse triangle is decorative once state is on aria-expanded.
     hideFromAT(self?.querySelector(".tree-item-icon") ?? null);

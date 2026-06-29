@@ -88,6 +88,10 @@ export function installTreeKeyboard(tree: HTMLElement): void {
     const cur = t.closest?.(TREEITEM) as HTMLElement | null;
     if (!cur || !tree.contains(cur)) return;
 
+    // Any non-Space key cancels a pending Space activation, even when it doesn't
+    // move focus (e.g. expand/collapse/Enter in place) — prevents a double-fire.
+    if (e.key !== " " && e.key !== "Spacebar") spaceArmed = null;
+
     const list = visibleItems(tree);
     const i = list.indexOf(cur);
 
@@ -107,8 +111,16 @@ export function installTreeKeyboard(tree: HTMLElement): void {
       case "ArrowRight":
         e.preventDefault();
         if (isFolder(cur)) {
-          if (!isExpanded(cur)) activate(cur); // expand in place
-          else if (list[i + 1]) focusItem(tree, list[i + 1]); // into first child
+          if (!isExpanded(cur)) {
+            activate(cur); // expand in place
+          } else {
+            // Step into the first actual child (not merely the next visible row,
+            // which could be a sibling when an expanded folder is empty).
+            const child = cur.querySelector<HTMLElement>(
+              `:scope > .tree-item-children > ${TREEITEM}`,
+            );
+            if (child && isVisible(child)) focusItem(tree, child);
+          }
         }
         break;
       case "ArrowLeft":
